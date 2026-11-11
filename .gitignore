@@ -1,0 +1,39 @@
+# Build outputs
+build/
+out/
+
+# Gradle
+.gradle/
+gradle-app.setting
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+factorypath/
+
+# Test reports and results
+build/reports/
+build/test-results/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets and credentials
+*.keystore
+*.pem
+*.jks
+
+# Logs
+*.log
+
+# Gradle wrapper (not committed)
+gradlew
+gradlew.bat
+gradle/wrapper/
