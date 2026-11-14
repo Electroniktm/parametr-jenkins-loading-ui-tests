@@ -7,7 +7,7 @@
 [![Allure](https://img.shields.io/badge/Allure-2.32.0-red.svg)](https://allurereport.org/)
 [![Jenkins](https://img.shields.io/badge/Jenkins-CI-blue.svg)](https://www.jenkins.io/)
 
-> UI-автоматизация веб-форм [DemoQA](https://demoqa.com) на Selenide и JUnit 5 с генерацией случайных данных через JavaFaker, отчётностью Allure Reports и запуском в Jenkins. (обновлено 08.11.2026)
+> UI-автоматизация веб-форм [DemoQA](https://demoqa.com) на Selenide и JUnit 5 с генерацией случайных данных через JavaFaker, отчётностью Allure Reports и запуском в Jenkins. Параметры запуска (браузер, версия, размер окна, адреса) выносятся в `-D`-свойства и в параметризованную сборку Jenkins. (обновлено 14.11.2026)
 
 ---
 
@@ -20,6 +20,7 @@
 - [Генерация данных](#генерация-данных)
 - [Начало работы](#начало-работы)
 - [Запуск тестов](#запуск-тестов)
+- [Параметры запуска](#️-параметры-запуска)
 - [Принятые решения](#принятые-решения)
 - [Лучшие практики](#лучшие-практики)
 - [CI/CD (Jenkins)](#cicd-jenkins)
@@ -54,7 +55,7 @@
 ## 📁 Структура проекта
 
 ```
-java-reigstration-form-tests-page-object-rand-data/
+parametr-jenkins-loading-ui-tests/
 ├── build.gradle                          # Конфигурация сборки и зависимости
 ├── README.MD                             # Этот файл
 ├── LICENSE                               # Лицензия
@@ -164,8 +165,8 @@ public String randomCity(String state) {
 ### Установка
 
 ```bash
-git clone https://github.com/Electroniktm/jenkins-allure-java-reigstration-form-tests-page-object-rand-data.git
-cd jenkins-allure-java-reigstration-form-tests-page-object-rand-data
+git clone https://github.com/Electroniktm/parametr-jenkins-loading-ui-tests.git
+cd parametr-jenkins-loading-ui-tests
 ```
 
 ---
@@ -196,6 +197,48 @@ gradle test --tests "tests.RegistrationFormTests.fillAllFieldsAndSubmitTest"
 ```bash
 gradle test --info
 ```
+
+---
+
+## ⚙️ Параметры запуска
+
+Все ключевые настройки вынесены из кода в `-D` параметры — одним и тем же кодом можно управлять из командной строки и из Jenkins:
+
+```bash
+gradle clean test \
+  -DbaseUrl=https://demoqa.com \
+  -DremoteURL=https://user1:1234@selenoid.qa.guru/wd/hub \
+  -Dbrowser=chrome \
+  -DbrowserVersion=latest \
+  -Dheadless=false \
+  -DbrowserSize=1920x1280
+```
+
+| Параметр | Что задает | Значение по умолчанию |
+|------|------|------|
+| `baseUrl` | адрес сайта под тестом | `https://demoqa.com` |
+| `remoteURL` | адрес удаленного браузера (Selenoid) | `https://user1:1234@selenoid.qa.guru/wd/hub` |
+| `browser` | браузер | `chrome` |
+| `browserVersion` | версия браузера (`latest` — не фиксировать, хаб отдаёт доступную версию из пула слотов) | `latest` |
+| `headless` | headless-режим браузера | `false` |
+| `browserSize` | разрешение экрана | `1920x1280` |
+
+Механика: Jenkins/CLI передают параметры как системные свойства, `build.gradle` прокидывает их в JVM тестов (`systemProperties(System.getProperties())`), а [`TestBase.java`](src/test/java/tests/TestBase.java) читает через `System.getProperty("имя", "значение по умолчанию")` — поэтому запуск без параметров работает с дефолтами:
+
+```java
+Configuration.baseUrl = System.getProperty("baseUrl", "https://demoqa.com");
+Configuration.browser = System.getProperty("browser", "chrome");
+Configuration.browserSize = System.getProperty("browserSize", "1920x1280");
+Configuration.remote = System.getProperty("remoteURL", "https://user1:1234@selenoid.qa.guru/wd/hub");
+Configuration.headless = Boolean.parseBoolean(System.getProperty("headless", "false"));
+
+String browserVersion = System.getProperty("browserVersion", "");
+if (!browserVersion.isEmpty() && !browserVersion.equalsIgnoreCase("latest")) {
+    Configuration.browserVersion = browserVersion;
+}
+```
+
+> ⚠️ Справедливости ради: фиксация нестандартного `browserSize` (например, `1366x768`) обнажила особенность demoqa — на маленьких разрешениях рекламный оверлей перекрывает кнопку Submit (`ElementClickInterceptedException`). Механизм параметров работает, но разрешение лучше подбирать под приложение.
 
 ---
 
@@ -289,7 +332,7 @@ uploadPicture.uploadFromClasspath("test.png");
 | **Описательные имена тестов** | `invalidEmailFormatTest`, `missingGenderSelectionTest` |
 | **Явные ассерции** | `shouldHave(text(...))` для проверок |
 | **Чистый код** | Без inline-комментариев; самодокументирующиеся имена методов |
-| **Управление конфигурацией** | Настройки браузера централизованы в `TestBase.beforeALL()` |
+| **Управление конфигурацией** | Настройки централизованы в `TestBase.beforeALL()`, все параметры запуска переопределяются `-D`-свойствами без изменения кода |
 
 ---
 
@@ -303,16 +346,7 @@ uploadPicture.uploadFromClasspath("test.png");
 
 ## 🔧 Конфигурация
 
-Настройки браузера и тестов управляются в [`TestBase.java`](src/test/java/tests/TestBase.java):
-
-```java
-Configuration.browserSize = "1920x1280";
-Configuration.browser = "chrome";
-Configuration.baseUrl = "https://demoqa.com";
-// браузер запускается в облачном Selenoid, версия не фиксируется —
-// хаб использует пул слотов и отдаёт доступную версию Chrome
-Configuration.remote = "https://user1:1234@selenoid.qa.guru/wd/hub";
-```
+Базовая настройка тестов — в [`TestBase.java`](src/test/java/tests/TestBase.java): слушатель `AllureSelenide`, таймаут и все параметры запуска, которые читаются из `-D` свойств (по умолчанию — из значений `System.getProperty`). Подробный список параметров — в разделе [Параметры запуска](#️-параметры-запуска).
 
 Слушатель `AllureSelenide` (скриншоты + исходник страницы при падении) подключается в каждом тесте:
 
@@ -328,11 +362,22 @@ void addListener() {
 
 ## 🏗 CI/CD (Jenkins)
 
-Сборка прогоняется в Jenkins: git-склонирование репозитория → `gradle clean test` → публикация отчёта Allure.
+Параметризованная сборка [`electroniktm_demoqa_ui_tests`](https://jenkins.qa.guru/job/electroniktm_demoqa_ui_tests/) прогоняется в Jenkins: git-склонирование репозитория → `gradle clean test` с параметрами сборки → публикация отчёта Allure.
 
-| Параметр | Значение |
+Перед запуском в Jenkins задаются параметры сборки трёх типов — **выпадающие списки**, **поля ввода** и **чекбокс** — и передаются в тесты как `-D` свойства (галочка *Pass all build parameters as system properties* в Gradle-шаге + `systemProperties(System.getProperties())` в `build.gradle`):
+
+| Параметр | Тип в Jenkins | Значение по умолчанию |
+|------|------|------|
+| `browser` | выпадающий список (chrome / firefox) | `chrome` |
+| `browserVersion` | выпадающий список (latest / 157 / 156 / 155) | `latest` |
+| `headless` | чекбокс (Boolean Parameter) | `false` |
+| `baseUrl` | поле ввода (String Parameter) | `https://demoqa.com` |
+| `browserSize` | поле ввода (String Parameter) | `1920x1280` |
+| `remoteURL` | поле ввода (String Parameter) | `https://user1:1234@selenoid.qa.guru/wd/hub` |
+
+| Настройка джобы | Значение |
 |------|------|
-| **SCM** | `https://github.com/Electroniktm/jenkins-allure-java-reigstration-form-tests-page-object-rand-data.git`, ветка `main` |
+| **SCM** | `https://github.com/Electroniktm/parametr-jenkins-loading-ui-tests.git`, ветка `main` |
 | **Агент** | нода с меткой `java` (JDK 21) |
 | **Gradle** | установленный в Jenkins `Gradle 8.6`, флаг `--no-daemon`, задачи `clean test` |
 | **Allure** | плагин allure-jenkins-plugin, результаты из `build/allure-results`, отчёт собирается всегда (`ALWAYS`) |
